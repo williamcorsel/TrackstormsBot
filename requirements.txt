@@ -1,3 +1,3 @@
 opencv-python==4.6.0.66
-Flask
-tflite-support
+git+https://github.com/RaspberryPiFoundation/python-build-hat.git@eeffd9d#egg=buildhat
+Flask==2.2.3

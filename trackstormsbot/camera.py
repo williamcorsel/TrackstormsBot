@@ -1,12 +1,15 @@
-import cv2
-from threading import Thread
-import time
 import logging
+import time
+from threading import Thread
+
+import cv2
 
 log = logging.getLogger(__name__)
 
+
 class CameraStream:
-    def __init__(self, size=(640, 480), index=0):
+
+    def __init__(self, index, size=(640, 480)):
         self._stopped = False
         self._status = False
         self._frame = None
@@ -20,7 +23,7 @@ class CameraStream:
 
     def open(self):
         self._stopped = False
-        log.info(f"Starting camera stream with size {self._size} and fps {self._cap.get(cv2.CAP_PROP_FPS)}")
+        log.info(f'Starting camera stream with size {self._size} and fps {self._cap.get(cv2.CAP_PROP_FPS)}')
         self._thread.start()
 
     def close(self):
@@ -30,13 +33,13 @@ class CameraStream:
         reported_fps = int(self._cap.get(cv2.CAP_PROP_FPS))
         frame_count = 0
         start_time = time.time()
-        
+
         while not self._stopped:
             status, frame = self._cap.read()
 
             self._frame = frame
             self._status = status
-            
+
             if not self._status:
                 self.close()
                 break
@@ -47,20 +50,18 @@ class CameraStream:
                 self._fps = frame_count / (time.time() - start_time)
                 frame_count = 0
                 start_time = time.time()
-            
+
         self._cap.release()
         self._cap = None
-    
+
     def read(self):
         return None if not self._status else self._frame.copy()
-    
+
     def is_opened(self):
         return not self._stopped
-    
+
     def size(self):
         return self._size
-    
+
     def fps(self):
         return self._fps
-    
-    

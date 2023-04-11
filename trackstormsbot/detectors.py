@@ -1,12 +1,12 @@
-import cv2
-from threading import Thread
 import time
+from threading import Thread
+
+import cv2
+
 
 class Detector:
-    def __init__(self, 
-            camera, 
-            det_frame_size=(320, 200)
-        ):
+
+    def __init__(self, camera, det_frame_size=(320, 200)):
         self._camera = camera
         self._det_frame_size = det_frame_size
         self._stopped = False
@@ -19,7 +19,6 @@ class Detector:
             camera_frame_size[1] / self._det_frame_size[1],
         )
         self._thread = Thread(target=self.detect, args=())
-
 
     def start(self):
         self._stopped = False
@@ -41,7 +40,7 @@ class Detector:
             frame = cv2.equalizeHist(frame)
 
         return frame
-    
+
     def fps(self):
         return self._fps
 
@@ -59,22 +58,17 @@ class Detector:
                 frame_count = 0
                 start_time = time.time()
 
+
 class CascadeDetector(Detector):
-    def __init__(self, 
-            camera, 
-            cascade_path, 
-            scale_factor=1.1, 
-            min_neighbors=3, 
-            min_size=(10, 10),
-            max_size=(100, 100)
-        ):
+    HAARCASCADE = 'trackstormsbot/configs/haarcascade_frontalface_default.xml'
+
+    def __init__(self, camera, scale_factor=1.1, min_neighbors=3, min_size=(10, 10), max_size=(100, 100)):
         super().__init__(camera)
-        self._cascade_path = cascade_path
         self._scale_factor = scale_factor
         self._min_neighbors = min_neighbors
         self._min_size = min_size
         self._max_size = max_size
-        self._cascade = cv2.CascadeClassifier(cascade_path)
+        self._cascade = cv2.CascadeClassifier(self.HAARCASCADE)
 
     def detect(self):
         reported_fps = int(self._camera.fps())
@@ -96,19 +90,14 @@ class CascadeDetector(Detector):
             )
 
             # Scale detections to original frame size
-            self._detections = [
-                [
-                    int(x * self._frame_scale_factor[0]),
-                    int(y * self._frame_scale_factor[1]),
-                    int(w * self._frame_scale_factor[0]),
-                    int(h * self._frame_scale_factor[1]),
-                ]
-                for (x, y, w, h) in detections
-            ]
+            self._detections = [[
+                int(x * self._frame_scale_factor[0]),
+                int(y * self._frame_scale_factor[1]),
+                int(w * self._frame_scale_factor[0]),
+                int(h * self._frame_scale_factor[1]),] for (x, y, w, h) in detections]
 
             frame_count += 1
             if frame_count % reported_fps == 0:
                 self._fps = frame_count / (time.time() - start_time)
                 frame_count = 0
                 start_time = time.time()
-
