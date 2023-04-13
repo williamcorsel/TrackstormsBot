@@ -1,3 +1,4 @@
-opencv-python==4.6.0.66
+# opencv-python-headless==4.6.0.66
+opencv-python-headless==4.7.0.72
 git+https://github.com/RaspberryPiFoundation/python-build-hat.git@eeffd9d#egg=buildhat
 Flask==2.2.3

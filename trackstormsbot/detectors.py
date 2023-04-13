@@ -1,23 +1,28 @@
+import logging
 import time
 from threading import Thread
 
 import cv2
 
+log = logging.getLogger(__name__)
+
 
 class Detector:
 
-    def __init__(self, camera, det_frame_size=(320, 200)):
+    def __init__(self, camera, rate=-1, det_frame_size=(320, 200)):
         self._camera = camera
+        self._rate = rate
         self._det_frame_size = det_frame_size
         self._stopped = False
         self._detections = []
-        self._fps = -1
+        self._fps = 1
 
         camera_frame_size = self._camera.size()
         self._frame_scale_factor = (
             camera_frame_size[0] / self._det_frame_size[0],
             camera_frame_size[1] / self._det_frame_size[1],
         )
+        self._last_detection_time = 0
         self._thread = Thread(target=self.detect, args=())
 
     def start(self):
@@ -36,8 +41,6 @@ class Detector:
         # Resize frame to detection frame size
         if frame is not None:
             frame = cv2.resize(frame, self._det_frame_size, interpolation=cv2.INTER_AREA)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frame = cv2.equalizeHist(frame)
 
         return frame
 
@@ -45,59 +48,119 @@ class Detector:
         return self._fps
 
     def detect(self):
-        reported_fps = int(self._camera.fps())
         frame_count = 0
-        start_time = time.time()
 
+        fps_timer = time.time()
         while not self._stopped:
-            self._detections = self.detect()
+            start_time = time.time()
 
+            # Get frame
+            frame = self.get_frame()
+            if frame is None:
+                continue
+
+            # Run detection model and post process detections
+            # These functions should be implemented by the child class
+            output = self.model_detection(frame)
+            self._detections = self.detection_post_process(output)
+
+            # Calculate detection rate
             frame_count += 1
-            if frame_count % reported_fps == 0:
-                self._fps = frame_count / (time.time() - start_time)
+            camera_fps = int(self._camera.fps())
+            if camera_fps > 0 and frame_count % camera_fps == 0:
+                self._fps = frame_count / (time.time() - fps_timer)
                 frame_count = 0
-                start_time = time.time()
+                fps_timer = time.time()
+
+            self._last_detection_time = time.time()
+
+            # Sleep to maintain detection rate
+            time.sleep(max(0, 1 / self._rate - (time.time() - start_time)))
+
+    def model_detection(self, frame):
+        return []
+
+    def detection_post_process(self, detections):
+        return detections
 
 
 class CascadeDetector(Detector):
     HAARCASCADE = 'trackstormsbot/configs/haarcascade_frontalface_default.xml'
 
-    def __init__(self, camera, scale_factor=1.1, min_neighbors=3, min_size=(10, 10), max_size=(100, 100)):
-        super().__init__(camera)
+    def __init__(self,
+                 camera,
+                 rate=-1,
+                 det_frame_size=(320, 200),
+                 scale_factor=1.1,
+                 min_neighbors=3,
+                 min_size=(10, 10),
+                 max_size=(100, 100)):
+        super().__init__(camera, rate, det_frame_size)
         self._scale_factor = scale_factor
         self._min_neighbors = min_neighbors
         self._min_size = min_size
         self._max_size = max_size
         self._cascade = cv2.CascadeClassifier(self.HAARCASCADE)
 
-    def detect(self):
-        reported_fps = int(self._camera.fps())
-        frame_count = 0
-        start_time = time.time()
+    def model_detection(self, frame):
+        return self._cascade.detectMultiScale(
+            image=frame,
+            scaleFactor=self._scale_factor,
+            minNeighbors=self._min_neighbors,
+            minSize=self._min_size,
+            maxSize=self._max_size,
+        )
 
-        while not self._stopped:
-            frame = self.get_frame()
+    def detection_post_process(self, detections):
+        processed_detections = [[
+            int(x * self._frame_scale_factor[0]),
+            int(y * self._frame_scale_factor[1]),
+            int(w * self._frame_scale_factor[0]),
+            int(h * self._frame_scale_factor[1]),] for (x, y, w, h) in detections]
+        return processed_detections
 
-            if frame is None:
+    def get_frame(self):
+        frame = self._camera.read()
+
+        # Also convert to grayscale and equalize histogram
+        if frame is not None:
+            frame = cv2.resize(frame, self._det_frame_size, interpolation=cv2.INTER_AREA)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            frame = cv2.equalizeHist(frame)
+
+        return frame
+
+
+class YuNetDetector(Detector):
+    MODEL_PATH = 'trackstormsbot/models/face_detection_yunet_2022mar.onnx'
+
+    def __init__(self, camera, rate=-1, det_frame_size=(128, 96), score_threshold=0.7, nms_threshold=0.3, top_k=10):
+        super().__init__(camera, rate, det_frame_size)
+        self._score_threshold = score_threshold
+        self._nms_threshold = nms_threshold
+        self._top_k = top_k
+        self._model = cv2.FaceDetectorYN.create(
+            self.MODEL_PATH,
+            '',
+            det_frame_size,
+            score_threshold,
+            nms_threshold,
+            top_k,
+        )
+
+    def model_detection(self, frame):
+        return self._model.detect(frame)
+
+    def detection_post_process(self, detections):
+        processed_detections = []
+        for detection in (detections[1] if detections[1] is not None else []):
+            try:
+                x = int(detection[0] * self._frame_scale_factor[0])
+                y = int(detection[1] * self._frame_scale_factor[1])
+                w = int(detection[2] * self._frame_scale_factor[0])
+                h = int(detection[3] * self._frame_scale_factor[1])
+                processed_detections.append([x, y, w, h])
+            except Exception as e:
                 continue
 
-            detections = self._cascade.detectMultiScale(
-                image=frame,
-                scaleFactor=self._scale_factor,
-                minNeighbors=self._min_neighbors,
-                minSize=self._min_size,
-                maxSize=self._max_size,
-            )
-
-            # Scale detections to original frame size
-            self._detections = [[
-                int(x * self._frame_scale_factor[0]),
-                int(y * self._frame_scale_factor[1]),
-                int(w * self._frame_scale_factor[0]),
-                int(h * self._frame_scale_factor[1]),] for (x, y, w, h) in detections]
-
-            frame_count += 1
-            if frame_count % reported_fps == 0:
-                self._fps = frame_count / (time.time() - start_time)
-                frame_count = 0
-                start_time = time.time()
+        return processed_detections

@@ -6,12 +6,16 @@ from flask import Flask, Response, render_template
 
 from trackstormsbot.camera import CameraStream
 from trackstormsbot.controller import MotorController
-from trackstormsbot.detectors import CascadeDetector
+from trackstormsbot.detectors import *
 from trackstormsbot.utils import *
 
 log = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder='trackstormsbot/templates')
+
+DETECTOR_MAP = {
+    'haarcascade': CascadeDetector,
+    'yunet': YuNetDetector,}
 
 
 def get_args():
@@ -20,8 +24,8 @@ def get_args():
     parser.add_argument('-d',
                         '--detector',
                         type=str,
-                        default='haarcascade',
-                        choices=['haarcascade'],
+                        default='yunet',
+                        choices=DETECTOR_MAP.keys(),
                         help='Name of detector model to use')
     parser.add_argument('-p',
                         '--motor_ports',
@@ -29,21 +33,21 @@ def get_args():
                         nargs=2,
                         default=['A', 'B'],
                         help='Motor Ports (X-axis, Y-axis)')
+    parser.add_argument('--disable_controller', action='store_true', help='Disable controller')
+    parser.add_argument('-r', '--detector_rate', type=int, default=-1, help='Detector rate (FPS)')
     return parser.parse_args()
 
 
-def get_detector(detector_name, camera, **kwargs):
-    if detector_name == 'haarcascade':
-        return CascadeDetector(camera, **kwargs)
-    else:
-        raise ValueError('Invalid detector name')
+def get_detector(detector_name, camera, rate, **kwargs):
+    detector_class = DETECTOR_MAP[detector_name]
+    return detector_class(camera, rate, **kwargs)
 
 
 def video_stream():
     args = get_args()
 
     camera = CameraStream(args.camera)
-    detector = get_detector(args.detector, camera)
+    detector = get_detector(args.detector, camera, args.detector_rate)
     controller = MotorController(args.motor_ports)
 
     camera.open()
@@ -67,15 +71,16 @@ def video_stream():
 
         frame_vis = camera.read()
 
-        if detection is not None:
-            middle = calculate_middle_xywh(detection)
-            frame_vis = visualise_detection(frame_vis, detection)
-            controller.move_to_middle(
-                frame_middle=frame_middle,
-                detection_middle=middle,
-            )
-        else:
-            controller.stop()
+        if not args.disable_controller:
+            if detection is not None:
+                middle = calculate_middle_xywh(detection)
+                frame_vis = visualise_detection(frame_vis, detection)
+                controller.move_to_middle(
+                    frame_middle=frame_middle,
+                    detection_middle=middle,
+                )
+            else:
+                controller.stop()
 
         stats = {
             'FPS (Camera)': int(camera.fps()),
