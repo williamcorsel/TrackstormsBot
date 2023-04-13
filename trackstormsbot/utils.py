@@ -12,6 +12,14 @@ def visualise_detection(frame, detection, color=(0, 255, 0), thickness=2):
     return frame_out
 
 
+def visualise_landmarks(frame, landmarks, color=(0, 255, 0), thickness=2):
+    for landmark in landmarks:
+        x, y = landmark
+        frame = cv2.circle(frame, (x, y), 2, color, thickness)
+
+    return frame
+
+
 def visualise_stats(frame, stats, location=(10, 30), color=(0, 255, 0), thickness=2):
     for stat_name, stat_value in stats.items():
         stat = f'{stat_name}: {stat_value}'

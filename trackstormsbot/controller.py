@@ -1,23 +1,20 @@
 import logging
 import time
 
-from buildhat import Motor
+from buildhat import DistanceSensor, Motor
 
 log = logging.getLogger(__name__)
 
 
 class MotorController:
 
-    def __init__(self, motor_ports, rate=-1):
+    def __init__(self, motor_ports):
         self._motor_x = Motor(motor_ports[0])
         self._motor_y = Motor(motor_ports[1])
         # self.motor_x.set_speed_unit_rpm(True)
 
-        self._rate = rate  # commands per second
-
         self._x_movement = 'stop'
         self._y_movement = 'stop'
-        self._last_command = 0
         self._target = (0, 0)
 
     def move_to_middle(self,
@@ -29,9 +26,6 @@ class MotorController:
                        ver_speed=3):
         # move motors to keep detection middle in middle of frame
         if self._target == detection_middle:
-            return
-
-        if self._rate > 0 and time.time() < self._last_command + 1 / self._rate:
             return
 
         hor_tol_abs = frame_middle[0] * hor_tolerance
@@ -81,10 +75,8 @@ class MotorController:
                 self._motor_y.pwm(0)
 
         self._target = detection_middle
-        self._last_command = time.time()
 
     def to_position(self, x, y):
-        log.info('to center')
         self._motor_x.run_to_position(x, blocking=False)
         self._motor_y.run_to_position(y, blocking=False)
 
@@ -100,4 +92,21 @@ class MotorController:
             self._y_movement = 'stop'
             self._motor_y.pwm(0)
 
-        self._last_command = time.time()
+
+class DistanceSensorController:
+    DEFAULT_EYE_STATE = (0, 0, 0, 0)
+
+    def __init__(self, port):
+        self._sensor = DistanceSensor(port)
+        self._eye_values = self.DEFAULT_EYE_STATE
+
+        # self._sensor.eyes(*self.DEFAULT_EYE_STATE)
+
+    def get_distance(self):
+        return self._sensor.get_distance()
+
+    def set_eyes(self, right_upper, left_upper, right_lower, left_lower):
+        new_eye_values = (right_upper, left_upper, right_lower, left_lower)
+        if new_eye_values != self._eye_values:
+            self._sensor.eyes(*new_eye_values)
+            self._eye_values = new_eye_values

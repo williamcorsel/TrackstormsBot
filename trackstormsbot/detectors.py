@@ -3,6 +3,7 @@ import time
 from threading import Thread
 
 import cv2
+import mediapipe as mp
 
 log = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class Detector:
         self._det_frame_size = det_frame_size
         self._stopped = False
         self._detections = []
+        self._labels = []
         self._fps = 1
 
         camera_frame_size = self._camera.size()
@@ -33,7 +35,7 @@ class Detector:
         self._stopped = True
 
     def read(self):
-        return self._detections
+        return self._detections, self._labels
 
     def get_frame(self):
         frame = self._camera.read()
@@ -62,7 +64,7 @@ class Detector:
             # Run detection model and post process detections
             # These functions should be implemented by the child class
             output = self.model_detection(frame)
-            self._detections = self.detection_post_process(output)
+            self._detections, self._labels = self.detection_post_process(output)
 
             # Calculate detection rate
             frame_count += 1
@@ -81,7 +83,7 @@ class Detector:
         return []
 
     def detection_post_process(self, detections):
-        return detections
+        return detections, []
 
 
 class CascadeDetector(Detector):
@@ -117,7 +119,7 @@ class CascadeDetector(Detector):
             int(y * self._frame_scale_factor[1]),
             int(w * self._frame_scale_factor[0]),
             int(h * self._frame_scale_factor[1]),] for (x, y, w, h) in detections]
-        return processed_detections
+        return processed_detections, []
 
     def get_frame(self):
         frame = self._camera.read()
@@ -163,4 +165,32 @@ class YuNetDetector(Detector):
             except Exception as e:
                 continue
 
-        return processed_detections
+        return processed_detections, []
+
+
+class MediapipeDetector(Detector):
+
+    def __init__(self, camera, rate=-1, det_frame_size=(128, 96), score_threshold=0.7):
+        super().__init__(camera, rate, det_frame_size)
+        self._score_threshold = score_threshold
+
+        mp_face_detection = mp.solutions.face_detection
+        self._model = mp_face_detection.FaceDetection(model='short', min_detection_confidence=self._score_threshold)
+
+    def model_detection(self, frame):
+        return self._model.process(frame)
+
+    def detection_post_process(self, detections):
+        processed_detections = []
+        for detection in (detections.detections if detections.detections is not None else []):
+            x = int(detection.location_data.relative_bounding_box.xmin * self._det_frame_size[0] *
+                    self._frame_scale_factor[0])
+            y = int(detection.location_data.relative_bounding_box.ymin * self._det_frame_size[1] *
+                    self._frame_scale_factor[1])
+            w = int(detection.location_data.relative_bounding_box.width * self._det_frame_size[0] *
+                    self._frame_scale_factor[0])
+            h = int(detection.location_data.relative_bounding_box.height * self._det_frame_size[1] *
+                    self._frame_scale_factor[1])
+            processed_detections.append([x, y, w, h])
+
+        return processed_detections, []

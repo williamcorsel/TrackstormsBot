@@ -5,8 +5,9 @@ import cv2
 from flask import Flask, Response, render_template
 
 from trackstormsbot.camera import CameraStream
-from trackstormsbot.controller import MotorController
+from trackstormsbot.controller import DistanceSensorController, MotorController
 from trackstormsbot.detectors import *
+from trackstormsbot.gesture_recognisers import *
 from trackstormsbot.utils import *
 
 log = logging.getLogger(__name__)
@@ -15,7 +16,8 @@ app = Flask(__name__, template_folder='trackstormsbot/templates')
 
 DETECTOR_MAP = {
     'haarcascade': CascadeDetector,
-    'yunet': YuNetDetector,}
+    'yunet': YuNetDetector,
+    'mediapipe': MediapipeDetector,}
 
 
 def get_args():
@@ -27,14 +29,11 @@ def get_args():
                         default='yunet',
                         choices=DETECTOR_MAP.keys(),
                         help='Name of detector model to use')
-    parser.add_argument('-p',
-                        '--motor_ports',
-                        type=str,
-                        nargs=2,
-                        default=['A', 'B'],
-                        help='Motor Ports (X-axis, Y-axis)')
+    parser.add_argument('--motor_ports', type=str, nargs=2, default=['A', 'B'], help='Motor Ports (X-axis, Y-axis)')
+    parser.add_argument('--distance_port', type=str, default='C', help='Distance Sensor Port')
     parser.add_argument('--disable_controller', action='store_true', help='Disable controller')
-    parser.add_argument('-r', '--detector_rate', type=int, default=-1, help='Detector rate (FPS)')
+    parser.add_argument('--detector_rate', type=int, default=30, help='Detector rate (FPS)')
+    parser.add_argument('--gesture_rate', type=int, default=30, help='Gesture recogniser rate (FPS)')
     return parser.parse_args()
 
 
@@ -48,9 +47,12 @@ def video_stream():
 
     camera = CameraStream(args.camera)
     detector = get_detector(args.detector, camera, args.detector_rate)
+    gesture_recogniser = MediapipeRecogniser(camera, args.gesture_rate)
     controller = MotorController(args.motor_ports)
+    distance_sensor = DistanceSensorController(args.distance_port)
 
     camera.open()
+    gesture_recogniser.start()
     detector.start()
 
     frame_size = camera.size()
@@ -62,7 +64,8 @@ def video_stream():
         if frame is None:
             continue
 
-        detections = detector.read()
+        detections, _ = detector.read()
+        gesture_detections, gesture = gesture_recogniser.read()
 
         if len(detections) > 0:
             detection = detections[0]
@@ -75,6 +78,7 @@ def video_stream():
             if detection is not None:
                 middle = calculate_middle_xywh(detection)
                 frame_vis = visualise_detection(frame_vis, detection)
+                frame_vis = visualise_landmarks(frame_vis, gesture_detections)
                 controller.move_to_middle(
                     frame_middle=frame_middle,
                     detection_middle=middle,
@@ -82,9 +86,17 @@ def video_stream():
             else:
                 controller.stop()
 
+        if gesture == 'point':
+            distance_sensor.set_eyes(100, 100, 100, 100)
+        else:
+            distance_sensor.set_eyes(0, 0, 0, 0)
+
         stats = {
             'FPS (Camera)': int(camera.fps()),
-            'FPS (Detector)': int(detector.fps()),}
+            'FPS (Detector)': int(detector.fps()),
+            'FPS (Gesture)': int(gesture_recogniser.fps()),
+            # 'Distance (cm)': distance_sensor.get_distance(),
+            'Gesture': gesture,}
 
         frame_vis = visualise_stats(frame_vis, stats)
 
