@@ -76,12 +76,14 @@ def video_stream():
 
         if not args.disable_controller:
             if detection is not None:
+                relative_size = detection[2] * detection[3] / (frame_size[0] * frame_size[1])
                 middle = calculate_middle_xywh(detection)
                 frame_vis = visualise_detection(frame_vis, detection)
                 frame_vis = visualise_landmarks(frame_vis, gesture_detections)
                 controller.move_to_middle(
                     frame_middle=frame_middle,
                     detection_middle=middle,
+                    detection_size=relative_size,
                 )
             else:
                 controller.stop()
@@ -95,7 +97,7 @@ def video_stream():
             'FPS (Camera)': int(camera.fps()),
             'FPS (Detector)': int(detector.fps()),
             'FPS (Gesture)': int(gesture_recogniser.fps()),
-            # 'Distance (cm)': distance_sensor.get_distance(),
+            'Distance (cm)': distance_sensor.get_distance(),
             'Gesture': gesture,}
 
         frame_vis = visualise_stats(frame_vis, stats)

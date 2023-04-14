@@ -6,6 +6,9 @@ from trackstormsbot.detectors import Detector
 
 
 class KeyPointClassifier:
+    '''
+    Source: https://github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe
+    '''
 
     def __init__(
         self,

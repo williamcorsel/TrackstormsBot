@@ -1,5 +1,4 @@
 import logging
-import time
 
 from buildhat import DistanceSensor, Motor
 
@@ -17,34 +16,43 @@ class MotorController:
         self._y_movement = 'stop'
         self._target = (0, 0)
 
+    def _calculate_hor_speed(self, min_speed, max_speed, detection_size):
+        return max(min_speed, min(max_speed, max_speed / (detection_size * 30)))
+
     def move_to_middle(self,
                        frame_middle,
                        detection_middle,
+                       detection_size,
                        hor_tolerance=0.2,
                        ver_tolerance=0.2,
-                       hor_speed=12,
+                       min_hor_speed=15,
+                       max_hor_speed=50,
                        ver_speed=3):
         # move motors to keep detection middle in middle of frame
         if self._target == detection_middle:
             return
 
+        # calculate speed based on detection size and base speed
+        # Clamp between min and max speed
+        hor_speed = self._calculate_hor_speed(min_hor_speed, max_hor_speed, detection_size)
+
         hor_tol_abs = frame_middle[0] * hor_tolerance
         if frame_middle[0] > detection_middle[0] + hor_tol_abs:
             if not self._x_movement == 'right':
-                log.info('move right')
+                log.info(f'move right {hor_speed}')
                 self._x_movement = 'right'
                 # self.motor_x.start(-hor_speed)
                 # self.motor_x.pwm(-0.5)
                 # time.sleep(0.03)
-                self._motor_x.pwm(-hor_speed / 100)
+                self._motor_x.pwm(hor_speed / 100)
         elif frame_middle[0] < detection_middle[0] - hor_tol_abs:
             if not self._x_movement == 'left':
-                log.info('move left')
+                log.info(f'move left {-hor_speed}')
                 self._x_movement = 'left'
                 # self.motor_x.start(hor_speed)
                 # self.motor_x.pwm(0.5)
                 # time.sleep(0.03)
-                self._motor_x.pwm(hor_speed / 100)
+                self._motor_x.pwm(-hor_speed / 100)
         else:
             if not self._x_movement == 'stop':
                 log.info('stop horizontal')
@@ -99,8 +107,6 @@ class DistanceSensorController:
     def __init__(self, port):
         self._sensor = DistanceSensor(port)
         self._eye_values = self.DEFAULT_EYE_STATE
-
-        # self._sensor.eyes(*self.DEFAULT_EYE_STATE)
 
     def get_distance(self):
         return self._sensor.get_distance()
